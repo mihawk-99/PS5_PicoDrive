@@ -53,8 +53,20 @@ ifeq ($(STATIC_LINKING),1)
 EXT=a
 endif
 
+# PS5 (a homebrew title's libretro core): the console's libraries resolve at
+# load time. The 32X SH-2s run on the interpreter: the recompiler makes a static
+# buffer read-write-execute, which a PS5 title accepts and then faults on, and
+# the interpreter is fast enough on the console's CPU. zstd without its trace
+# hooks, weak imports nothing on the console defines.
+ifeq ($(platform), ps5)
+	EXT ?= so
+	TARGET := $(TARGET_NAME)_libretro.$(EXT)
+	fpic := -fPIC
+	SHARED := -shared
+	CFLAGS += -DFAMEC_NO_GOTOS -DZSTD_TRACE=0
+	use_sh2drc = 0
 # Unix
-ifeq ($(platform), unix)
+else ifeq ($(platform), unix)
 	EXT ?= so
 	TARGET := $(TARGET_NAME)_libretro.$(EXT)
 	fpic := -fPIC
