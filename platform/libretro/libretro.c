@@ -1570,7 +1570,15 @@ bool retro_load_game(const struct retro_game_info *info)
       }
    }
 
+#ifdef __PROSPERO__
+   /* PS5: the renderers still draw RGB565, but the frame goes to the frontend as
+    * XRGB8888 (retro_run converts it): PS5 RetroArch's Vulkan path shows 16-bit
+    * frames whose rows are not a whole number of 256 bytes (320 pixels are 640)
+    * as garbage, so its other 16-bit cores send XRGB8888 too. */
+   enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
+#else
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
+#endif
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) {
       if (log_cb)
          log_cb(RETRO_LOG_ERROR, "RGB565 support required, sorry\n");
@@ -2467,7 +2475,11 @@ void retro_run(void)
    /* If frame was skipped, call video_cb() with
     * a NULL buffer and return immediately */
    if (PicoIn.skipFrame) {
+#ifdef __PROSPERO__
+      video_cb(NULL, vout_width, vout_height, vout_width * 4);
+#else
       video_cb(NULL, vout_width, vout_height, vout_width * 2);
+#endif
       return;
    }
 
@@ -2569,7 +2581,25 @@ void retro_run(void)
    buff = (char*)vout_buf + vout_offset;
 #endif
 
+#ifdef __PROSPERO__
+   {
+      /* RGB565 to XRGB8888, each channel widened by repeating its top bits. */
+      static uint32_t xrgb[VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT];
+      const unsigned short *ps = (const unsigned short *)buff;
+      size_t n = (size_t)vout_width * vout_height;
+      size_t k;
+      if (n > VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT)
+         n = VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT;
+      for (k = 0; k < n; k++) {
+         unsigned p = ps[k];
+         unsigned r = (p >> 11) & 0x1f, g = (p >> 5) & 0x3f, b = p & 0x1f;
+         xrgb[k] = ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+      }
+      video_cb(xrgb, vout_width, vout_height, vout_width * 4);
+   }
+#else
    video_cb((short *)buff, vout_width, vout_height, vout_width * 2);
+#endif
 }
 
 void retro_init(void)
